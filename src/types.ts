@@ -45,3 +45,13 @@ export interface RoomDetails {
   firmwareVersion: string;
   mountingHeightMeters: number;
 }
+
+export interface TerminalEntry {
+  id: string;
+  timeStr: string;
+  speed: number;
+  distance: number;
+  speedDelta: number;
+  status: SystemState;
+  isSpike: boolean;
+}

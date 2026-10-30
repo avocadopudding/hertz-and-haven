@@ -133,3 +133,18 @@ export function getAudioProfileConfig(profile: SoundProfile, pitchShift: number)
       };
   }
 }
+
+/**
+ * Calculates the delta in speed between two consecutive telemetry readings.
+ */
+export function calculateSpeedDelta(currentSpeed: number, previousSpeed: number): number {
+  return Number((currentSpeed - previousSpeed).toFixed(2));
+}
+
+/**
+ * Formats speed delta with explicit +/- sign and units.
+ */
+export function formatSpeedDelta(delta: number): string {
+  const sign = delta > 0 ? '+' : '';
+  return `${sign}${delta.toFixed(2)} m/s`;
+}

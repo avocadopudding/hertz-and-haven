@@ -6,6 +6,8 @@ import {
   classifyProximityZone,
   detectKineticSpike,
   getAudioProfileConfig,
+  calculateSpeedDelta,
+  formatSpeedDelta,
 } from './radarLogic';
 
 test('parseBlynkStatus correctly handles string and numeric Blynk virtual pin V2 values', () => {
@@ -78,3 +80,17 @@ test('getAudioProfileConfig computes frequencies shifted by pitch factor', () =>
   assert.equal(chimes.chimeFrequencies.length, 4);
   assert.equal(Math.round(chimes.chimeFrequencies[0]), 523);
 });
+
+test('calculateSpeedDelta accurately computes acceleration and deceleration', () => {
+  assert.equal(calculateSpeedDelta(0.85, 0.40), 0.45);
+  assert.equal(calculateSpeedDelta(0.40, 0.85), -0.45);
+  assert.equal(calculateSpeedDelta(1.20, 1.20), 0.00);
+  assert.equal(calculateSpeedDelta(3.25, 0.65), 2.60);
+});
+
+test('formatSpeedDelta outputs sign and units', () => {
+  assert.equal(formatSpeedDelta(0.45), '+0.45 m/s');
+  assert.equal(formatSpeedDelta(-0.62), '-0.62 m/s');
+  assert.equal(formatSpeedDelta(0.00), '0.00 m/s');
+});
+

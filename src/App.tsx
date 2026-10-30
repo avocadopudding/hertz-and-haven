@@ -15,6 +15,7 @@ import {
   MapPin,
   Clock,
   Sparkles,
+  Terminal,
 } from 'lucide-react';
 import {
   AudioSettings,
@@ -24,17 +25,20 @@ import {
   RoomDetails,
   SystemState,
   TelemetryData,
+  TerminalEntry,
 } from './types';
 import { audioSynthesizer } from './audio/audioSynthesizer';
 import {
   parseBlynkStatus,
   isWatchdogTimedOut,
   detectKineticSpike,
+  calculateSpeedDelta,
 } from './utils/radarLogic';
 import { StatusBanner } from './components/StatusBanner';
 import { RadarSweeper } from './components/RadarSweeper';
 import { SpeedGauge } from './components/SpeedGauge';
 import { DistanceMeter } from './components/ProximityMeter';
+import { TelemetryTerminal } from './components/TelemetryTerminal';
 import { EmergencyControls } from './components/EmergencyControls';
 import { SimulationPanel } from './components/SimulationPanel';
 import { EventAuditLog } from './components/EventAuditLog';
@@ -62,6 +66,36 @@ const INITIAL_LOGS: LogEvent[] = [
   },
 ];
 
+const INITIAL_TERMINAL_ENTRIES: TerminalEntry[] = [
+  {
+    id: 'term-init-1',
+    timeStr: '11:00:10.2',
+    speed: 0.36,
+    distance: 2.38,
+    speedDelta: 0.00,
+    status: 'NORMAL',
+    isSpike: false,
+  },
+  {
+    id: 'term-init-2',
+    timeStr: '11:00:11.2',
+    speed: 0.39,
+    distance: 2.36,
+    speedDelta: 0.03,
+    status: 'NORMAL',
+    isSpike: false,
+  },
+  {
+    id: 'term-init-3',
+    timeStr: '11:00:12.2',
+    speed: 0.42,
+    distance: 2.35,
+    speedDelta: 0.03,
+    status: 'NORMAL',
+    isSpike: false,
+  },
+];
+
 export default function App() {
   // Telemetry & State
   const [telemetry, setTelemetry] = useState<TelemetryData>({
@@ -77,6 +111,15 @@ export default function App() {
   const [prevDistance, setPrevDistance] = useState<number>(2.35);
   const [speedHistory, setSpeedHistory] = useState<number[]>([0.2, 0.4, 0.35, 0.42]);
   const [peakSpeed, setPeakSpeed] = useState<number>(0.42);
+
+  // Terminal Telemetry State (speed, distance, speed delta)
+  const [terminalEntries, setTerminalEntries] = useState<TerminalEntry[]>(INITIAL_TERMINAL_ENTRIES);
+  const [isTerminalPaused, setIsTerminalPaused] = useState<boolean>(false);
+  const [currentSpeedDelta, setCurrentSpeedDelta] = useState<number>(0.03);
+  const [isTerminalOpen, setIsTerminalOpen] = useState<boolean>(true);
+  const [isTerminalMinimized, setIsTerminalMinimized] = useState<boolean>(false);
+  const isTerminalPausedRef = useRef<boolean>(false);
+  const prevSpeedRef = useRef<number>(0.42);
 
   // Connection & Watchdog
   const [connection, setConnection] = useState<ConnectionStatus>('SIMULATED');
@@ -126,6 +169,31 @@ export default function App() {
   const prevStateRef = useRef<SystemState>('NORMAL');
   const wasOfflineRef = useRef<boolean>(false);
   const simPausedRef = useRef<boolean>(false);
+
+  // Helper to append a new packet to the telemetry terminal
+  const logTelemetryPacket = useCallback(
+    (newSpeed: number, newDistance: number, status: SystemState, isSpike: boolean) => {
+      const delta = calculateSpeedDelta(newSpeed, prevSpeedRef.current);
+      prevSpeedRef.current = newSpeed;
+      setCurrentSpeedDelta(delta);
+
+      if (!isTerminalPausedRef.current) {
+        const now = new Date();
+        const timeStr = `${now.toTimeString().split(' ')[0]}.${Math.floor(now.getMilliseconds() / 100)}`;
+        const entry: TerminalEntry = {
+          id: `term-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          timeStr,
+          speed: newSpeed,
+          distance: newDistance,
+          speedDelta: delta,
+          status,
+          isSpike,
+        };
+        setTerminalEntries((prev) => [...prev.slice(-149), entry]);
+      }
+    },
+    []
+  );
 
   // Helper to add log entries
   const addLog = useCallback(
@@ -301,6 +369,8 @@ export default function App() {
         setSpeedHistory((history) => [...history.slice(-24), newSpeed]);
         setPeakSpeed((curr) => Math.max(curr, Math.abs(newSpeed)));
 
+        logTelemetryPacket(newSpeed, newDist, prev.status, spike);
+
         return {
           ...prev,
           speed: newSpeed,
@@ -313,7 +383,7 @@ export default function App() {
     }, 1000);
 
     return () => clearInterval(simInterval);
-  }, [isSimulation]);
+  }, [isSimulation, logTelemetryPacket]);
 
   // Live Blynk Cloud Polling Engine
   useEffect(() => {
@@ -368,9 +438,12 @@ export default function App() {
             setSpeedHistory((history) => [...history.slice(-24), v0]);
             setPeakSpeed((curr) => Math.max(curr, Math.abs(v0)));
 
+            const activeDist = v1 > 0 ? v1 : prev.distance;
+            logTelemetryPacket(v0, activeDist, parsedState, isSpike);
+
             return {
               speed: v0,
-              distance: v1 > 0 ? v1 : prev.distance,
+              distance: activeDist,
               status: parsedState,
               statusRaw: v2,
               timestamp: Date.now(),
@@ -405,7 +478,7 @@ export default function App() {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [isSimulation, blynkConfig, transitionToState, addLog]);
+  }, [isSimulation, blynkConfig, transitionToState, addLog, logTelemetryPacket]);
 
   // Connection Watchdog Timer (Checks for > 5s hardware drops)
   useEffect(() => {
@@ -444,6 +517,7 @@ export default function App() {
 
     // 1. Kinetic velocity spike (3.2 m/s impact)
     const spikeSpeed = 3.25;
+    logTelemetryPacket(spikeSpeed, 0.85, 'VERIFYING', true);
     setTelemetry((prev) => ({
       ...prev,
       speed: spikeSpeed,
@@ -471,6 +545,7 @@ export default function App() {
     setLastPacketTime(Date.now());
 
     const spikeSpeed = 2.1;
+    logTelemetryPacket(spikeSpeed, 1.4, 'VERIFYING', true);
     setTelemetry((prev) => ({
       ...prev,
       speed: spikeSpeed,
@@ -496,6 +571,7 @@ export default function App() {
     simPausedRef.current = false;
     setLastPacketTime(Date.now());
     transitionToState('NORMAL');
+    logTelemetryPacket(0.65, 2.4, 'NORMAL', false);
     setTelemetry((prev) => ({
       ...prev,
       speed: 0.65,
@@ -591,6 +667,29 @@ export default function App() {
               <span className="sm:hidden">Blynk</span>
             </button>
 
+            {/* Terminal Toggle Button */}
+            <button
+              type="button"
+              onClick={() => {
+                handleUserGesture();
+                setIsTerminalOpen((prev) => {
+                  const next = !prev;
+                  if (next) setIsTerminalMinimized(false);
+                  return next;
+                });
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-colors ${
+                isTerminalOpen
+                  ? 'bg-emerald-950/70 border-emerald-500/50 text-emerald-300'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+              }`}
+              title={isTerminalOpen ? 'Hide Telemetry Terminal' : 'Show Telemetry Terminal'}
+              aria-label={isTerminalOpen ? 'Hide Telemetry Terminal' : 'Show Telemetry Terminal'}
+            >
+              <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="hidden sm:inline">Terminal</span>
+            </button>
+
             {/* Mute Button */}
             <button
               type="button"
@@ -653,6 +752,46 @@ export default function App() {
                 distance={telemetry.distance}
               />
             </div>
+
+            {/* Real-Time Telemetry Terminal (Speed, Distance & Speed Delta) */}
+            {isTerminalOpen ? (
+              <TelemetryTerminal
+                entries={terminalEntries}
+                currentSpeed={telemetry.speed}
+                currentDistance={telemetry.distance}
+                currentSpeedDelta={currentSpeedDelta}
+                isPaused={isTerminalPaused}
+                onTogglePause={() => {
+                  setIsTerminalPaused((prev) => {
+                    const next = !prev;
+                    isTerminalPausedRef.current = next;
+                    return next;
+                  });
+                }}
+                onClear={() => setTerminalEntries([])}
+                isMinimized={isTerminalMinimized}
+                onToggleMinimize={() => setIsTerminalMinimized((prev) => !prev)}
+                onClose={() => setIsTerminalOpen(false)}
+              />
+            ) : (
+              <div className="bg-slate-900/60 border border-dashed border-slate-800 rounded-2xl p-3 sm:px-4 flex items-center justify-between gap-3 text-xs font-mono">
+                <div className="flex items-center gap-2 text-slate-400">
+                  <Terminal className="w-4 h-4 text-emerald-400" />
+                  <span>Telemetry Terminal is closed</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsTerminalOpen(true);
+                    setIsTerminalMinimized(false);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold bg-emerald-950/60 hover:bg-emerald-900/70 text-emerald-300 border border-emerald-800/80 transition-colors active:scale-95"
+                >
+                  <Terminal className="w-3.5 h-3.5" />
+                  <span>Open Terminal</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Right Column: Emergency Controls, Simulation Engine & Activity Stream (5 cols on lg) */}
