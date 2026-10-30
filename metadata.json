@@ -1,0 +1,6 @@
+{
+  "name": "Hertz & Haven Zen1 Dashboard",
+  "description": "Real-time web monitoring and control hub for the ESP32-S3 and DFRobot C4001 mmWave radar fall detection system with Web Audio alerts and Blynk Cloud integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
